@@ -46,7 +46,7 @@ impl StreamServer {
 
     pub async fn send_rsp_or_push(&self, channel_id: u64, packet: &Packet) -> anyhow::Result<()> {
         let mut channels = self.channels.write().await;
-        ensure!(!channels.contains_key(&channel_id), "channel not ready");
+        ensure!(channels.contains_key(&channel_id), "channel not ready");
         Ok(channels.get_mut(&channel_id).unwrap().send_packet(&packet).await?)
     }
 
@@ -91,11 +91,9 @@ impl StreamServer {
         );
     }
 
-
-
     async fn accept(server_name: String, channels: Arc<RwLock<HashMap<u64, Channel>>>, event_sender: mpsc::Sender<Event>) -> anyhow::Result<()> {
         std::fs::remove_file(&server_name).unwrap_or(());
-        let acceptor = Factory::create_acceptor(&server_name);
+        let acceptor = Factory::create_acceptor(&server_name).await;
 
         loop {
             if let Ok(chan) = acceptor.accept(event_sender.clone()).await {

@@ -17,9 +17,9 @@ impl Factory {
         }
     }
 
-    pub fn create_acceptor(server_name: &str) -> Box<dyn StreamAcceptor> {
+    pub async fn create_acceptor(server_name: &str) -> Box<dyn StreamAcceptor> {
         match Self::stream_type(server_name) {
-            StreamType::TCP => Box::new(TcpAcceptor::new(server_name.to_string())),
+            StreamType::TCP => Box::new(TcpAcceptor::new(server_name.to_string()).await),
             StreamType::UNIX => Box::new(UnixAcceptor::new(server_name.to_string()))
         }
     }

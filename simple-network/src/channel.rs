@@ -113,72 +113,68 @@ impl Channel {
 
 
     async fn receive_packet(channel_id: u64, rsp_chan_sender: Arc<RwLock<HashMap<u64, oneshot::Sender<Packet>>>>, mut stream_reader: Box<dyn StreamReader>, last_recv_time: Arc<RwLock<Instant>>, event_sender: mpsc::Sender<Event>) {
-        async move {
-            let mut read_buffer =  BytesMut::with_capacity(RECV_BUF_SIZE);
-            loop {
-                let received_packets = Self::process_packet(&mut read_buffer);
-                let mut should_stop = false;
+        let mut read_buffer =  BytesMut::with_capacity(RECV_BUF_SIZE);
+        loop {
+            let received_packets = Self::process_packet(&mut read_buffer);
+            let mut should_stop = false;
 
-                for pack in received_packets {
-                    *last_recv_time.write().unwrap() = Instant::now();
-                    if pack.is_rsp() {
-                        let packet_id = Self::get_packet_id(pack.cmd(), pack.seq());
-                        let mut rsp_chan_sender = rsp_chan_sender.write().unwrap();
-                        if !rsp_chan_sender.contains_key(&packet_id) {
-                            continue;
-                        }
-
-                        let rsp_chan_sender_for_packet = rsp_chan_sender.remove(&packet_id).unwrap();
-                        if rsp_chan_sender_for_packet.send(pack).is_err() {
-                            println!("send response to channel failed");
-                        }
-
-                    } else if pack.is_req() {
-                        if event_sender.send(Event::GotRequest(channel_id, pack)).await.is_err() {
-                            println!("send request to channel failed");
-                            should_stop = true;
-                            break;
-                        }
-                    } else {
-                        if event_sender.send(Event::GotPush(channel_id, pack)).await.is_err() {
-                            println!("send push to channel failed");
-                            should_stop = true;
-                            break;
-                        }
+            for pack in received_packets {
+                *last_recv_time.write().unwrap() = Instant::now();
+                if pack.is_rsp() {
+                    let packet_id = Self::get_packet_id(pack.cmd(), pack.seq());
+                    let mut rsp_chan_sender = rsp_chan_sender.write().unwrap();
+                    if !rsp_chan_sender.contains_key(&packet_id) {
+                        continue;
                     }
-                }
 
-                if should_stop {
-                    println!("should_stop");
-                    break;
-                }
+                    let rsp_chan_sender_for_packet = rsp_chan_sender.remove(&packet_id).unwrap();
+                    if rsp_chan_sender_for_packet.send(pack).is_err() {
+                        println!("send response to channel failed");
+                    }
 
-                let read_result = stream_reader.read_some(&mut read_buffer).await;
-                if read_result.is_err() {
-                    println!("receive_buffer failed");
-                    break;
+                } else if pack.is_req() {
+                    if event_sender.send(Event::GotRequest(channel_id, pack)).await.is_err() {
+                        println!("send request to channel failed");
+                        should_stop = true;
+                        break;
+                    }
+                } else {
+                    if event_sender.send(Event::GotPush(channel_id, pack)).await.is_err() {
+                        println!("send push to channel failed");
+                        should_stop = true;
+                        break;
+                    }
                 }
             }
 
-            let _ = event_sender.send(Event::Closed(channel_id)).await;
+            if should_stop {
+                println!("should_stop");
+                break;
+            }
+
+            let read_result = stream_reader.read_some(&mut read_buffer).await;
+            if read_result.is_err() {
+                println!("receive_buffer failed");
+                break;
+            }
         }
+
+        let _ = event_sender.send(Event::Closed(channel_id)).await;
     }
 
 
     async fn check(channel_id: u64, last_recv_time: Arc<RwLock<Instant>>, connection_event_sender: mpsc::Sender<Event>) {
-        async move {
-            loop {
-                time::sleep(Duration::from_millis(ACTIVE_CONNECTION_LIFETIME_CHECK_INTERVAL_MILLIS)).await;
+        loop {
+            time::sleep(Duration::from_millis(ACTIVE_CONNECTION_LIFETIME_CHECK_INTERVAL_MILLIS)).await;
 
-                let now = Instant::now();
-                let duration = now.duration_since(*last_recv_time.read().unwrap());
-                if duration.as_millis() > ACTIVE_CONNECTION_LIFETIME_MILLIS {
-                    break;
-                }
+            let now = Instant::now();
+            let duration = now.duration_since(*last_recv_time.read().unwrap());
+            if duration.as_millis() > ACTIVE_CONNECTION_LIFETIME_MILLIS {
+                break;
             }
-
-            let _ = connection_event_sender.send(Event::Closed(channel_id)).await;
         }
+
+        let _ = connection_event_sender.send(Event::Closed(channel_id)).await;
     }
 
 

@@ -1,4 +1,3 @@
-
 use tokio::net::{UnixListener, TcpListener};
 use async_trait::async_trait;
 use tokio::runtime::Handle;
@@ -24,9 +23,7 @@ pub struct TcpAcceptor {
 impl UnixAcceptor {
     pub fn new(server_name: String) -> Self {
         Self {
-
             listener: UnixListener::bind(&server_name).unwrap(),
-
         }
     }
 }
@@ -34,9 +31,9 @@ impl UnixAcceptor {
 
 
 impl TcpAcceptor {
-    pub fn new(server_name: String) -> Self {
+    pub async fn new(server_name: String) -> Self {
         Self {
-            listener: Handle::current().block_on( async move {TcpListener::bind(&server_name).await.unwrap()}),
+            listener: TcpListener::bind(&server_name).await.unwrap(),
         }
     }
 }

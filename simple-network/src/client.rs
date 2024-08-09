@@ -55,11 +55,9 @@ impl StreamClient {
 
     pub async fn send_request_wait_response(&mut self, packet: &Packet, timeout_seconds: u64) -> anyhow::Result<Packet> {
         let mut channel = self.channel.write().await;
-        ensure!(channel.is_some(), "must be request packet");
+        ensure!(channel.is_some(), "disconnected");
         channel.as_mut().unwrap().send_request_wait_response(packet, timeout_seconds).await
     }
-
-
 
     pub async fn wait_push(&self, cmd: u32) -> Packet {
         if !self.push_chan_receiver.read().await.contains_key(&cmd) {
@@ -107,70 +105,63 @@ impl StreamClient {
 
     async fn connect(server_name: &str, channel: Arc<RwLock<Option<Channel>>>, event_receiver: Arc<RwLock<Option<mpsc::Receiver<Event>>>>) {
         let mut connector = Factory::create_connector(server_name);
-
-        async move {
-            loop {
-                if channel.read().await.is_none() {
-                    let (chan_event_sender, chan_event_receiver) = mpsc::channel(128);
-                    if let Ok(chan) = connector.connect(chan_event_sender.clone()).await {
-                        println!("connect success");
-                        *event_receiver.write().await = Some(chan_event_receiver);
-                        *channel.write().await = Some(chan);
-                    } else {
-                        println!("connect failed");
-                    }
+        loop {
+            if channel.read().await.is_none() {
+                let (chan_event_sender, chan_event_receiver) = mpsc::channel(128);
+                if let Ok(chan) = connector.connect(chan_event_sender.clone()).await {
+                    println!("connect success");
+                    *event_receiver.write().await = Some(chan_event_receiver);
+                    *channel.write().await = Some(chan);
+                } else {
+                    println!("connect failed");
                 }
-
-                time::sleep(Duration::from_millis(RECONNECT_INTERVAL_MILLIS)).await;
             }
+
+            time::sleep(Duration::from_millis(RECONNECT_INTERVAL_MILLIS)).await;
         }
     }
 
 
 
     async fn heartbeat(channel: Arc<RwLock<Option<Channel>>>) {
-        async move {
-            loop {
-                if let Some(channel) = channel.write().await.as_mut() {
-                    let heartbeat_pack = Packet::new_req(HEART_BEAT_CMD, Bytes::default());
-                    let _ = channel.send_packet(&heartbeat_pack).await;
-                }
-
-                time::sleep(Duration::from_millis(HEARTBEAT_INTERVAL_MILLIS)).await;
+        loop {
+            if let Some(channel) = channel.write().await.as_mut() {
+                let heartbeat_pack = Packet::new_req(HEART_BEAT_CMD, Bytes::default());
+                let _ = channel.send_packet(&heartbeat_pack).await;
             }
+
+            time::sleep(Duration::from_millis(HEARTBEAT_INTERVAL_MILLIS)).await;
         }
     }
 
 
 
     async fn observe_channel_event(channel: Arc<RwLock<Option<Channel>>>, push_chan_sender: Arc<RwLock<HashMap<u32, mpsc::Sender<Packet>>>>, event_receiver: Arc<RwLock<Option<mpsc::Receiver<Event>>>>) {
-        async move {
-            loop {
-                let mut event_receiver = event_receiver.write().await;
-                if let Some(receiver) = event_receiver.as_mut() {
-                    while let Some(event) = receiver.recv().await {
-                        match event {
-                            Event::Closed(_) => {
-                                println!("connection closed");
-                                break;
-                            }
-                            Event::GotPush(_, packet) => {
-                                if let Some(sender) = push_chan_sender.read().await.get(&packet.cmd()) {
-                                    let _ = sender.send(packet).await;
-                                }
-                            }
-                            Event::GotRequest(_, packet) => {
-                                println!("client got request, ignore it, cmd = {}", packet.cmd());
+        loop {
+            let mut event_receiver = event_receiver.write().await;
+            if let Some(receiver) = event_receiver.as_mut() {
+                while let Some(event) = receiver.recv().await {
+                    match event {
+                        Event::Closed(_) => {
+                            println!("connection closed");
+                            break;
+                        }
+                        Event::GotPush(_, packet) => {
+                            if let Some(sender) = push_chan_sender.read().await.get(&packet.cmd()) {
+                                let _ = sender.send(packet).await;
                             }
                         }
+                        Event::GotRequest(_, packet) => {
+                            println!("client got request, ignore it, cmd = {}", packet.cmd());
+                        }
                     }
-
-                    *channel.write().await = None;
-                    *event_receiver = None;
                 }
 
-                time::sleep(Duration::from_millis(RE_OBSERVER_EVENT_INTERVAL_MILLIS)).await;
+                *channel.write().await = None;
+                *event_receiver = None;
             }
+
+            time::sleep(Duration::from_millis(RE_OBSERVER_EVENT_INTERVAL_MILLIS)).await;
         }
     }
 }
