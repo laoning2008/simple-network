@@ -1,5 +1,8 @@
 [workspace]
+resolver = "2"
 members = [
   "simple-network",
-  "example"
+  "example",
+  "hub",
+  "device"
 ]

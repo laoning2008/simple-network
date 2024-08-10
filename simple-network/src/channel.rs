@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::future::Future;
 use std::io::Cursor;
 use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -33,8 +32,6 @@ pub struct Channel {
     stop_sender: Option<oneshot::Sender<()>>,
 }
 
-
-
 impl Drop for Channel {
     fn drop(&mut self) {
         let stop_sender = self.stop_sender.take();
@@ -48,7 +45,7 @@ impl Channel {
         let rsp_chan_sender: Arc<RwLock<HashMap<u64, oneshot::Sender<Packet>>>> = Arc::new(Default::default());
         let rsp_chan_sender_clone = rsp_chan_sender.clone();
         let (stop_sender, stop_receiver) = oneshot::channel();
-        let task_handle = Self::start(channel_id, stream_reader, event_sender, rsp_chan_sender_clone, stop_receiver);
+        Self::start(channel_id, stream_reader, event_sender, rsp_chan_sender_clone, stop_receiver);
 
         Self {
             channel_id,

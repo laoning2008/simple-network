@@ -4,7 +4,7 @@ use anyhow::ensure;
 use bytes::Bytes;
 use tokio::runtime::Handle;
 use tokio::select;
-use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
 use crate::{Packet};
 use crate::channel::{Channel, Event};
 use crate::factory::Factory;
@@ -14,6 +14,7 @@ pub struct StreamServer {
     channels: Arc<RwLock<HashMap<u64, Channel>>>,
     request_chan_sender: Arc<RwLock<HashMap<u32, mpsc::Sender<(u64, Packet)>>>>,
     request_chan_receiver: Arc<RwLock<HashMap<u32, mpsc::Receiver<(u64, Packet)>>>>,
+    channel_closed_event_receiver: Mutex<mpsc::Receiver<u64>>,
     stop_sender: Option<oneshot::Sender<()>>,
 }
 
@@ -32,24 +33,33 @@ impl StreamServer {
         let channels_start = channels.clone();
         let request_chan_sender_start = request_chan_sender.clone();
         let (stop_sender, stop_receiver) = oneshot::channel();
-        Self::start(server_name.to_string(), channels_start, request_chan_sender_start, stop_receiver);
+
+        let (channel_closed_event_sender, channel_closed_event_receiver) = mpsc::channel::<u64>(16);
+
+        Self::start(server_name.to_string(), channels_start, request_chan_sender_start, stop_receiver, channel_closed_event_sender);
 
         Self {
             channels,
             request_chan_sender,
             request_chan_receiver: Arc::new(RwLock::new(HashMap::new())),
+            channel_closed_event_receiver: Mutex::new(channel_closed_event_receiver),
             stop_sender: Some(stop_sender),
         }
     }
 
-
-
-    pub async fn send_rsp_or_push(&self, channel_id: u64, packet: &Packet) -> anyhow::Result<()> {
+    pub async fn send_response(&self, channel_id: u64, packet: &Packet) -> anyhow::Result<()> {
         let mut channels = self.channels.write().await;
+        ensure!(packet.is_rsp(), "invalid packet");
         ensure!(channels.contains_key(&channel_id), "channel not ready");
         Ok(channels.get_mut(&channel_id).unwrap().send_packet(&packet).await?)
     }
 
+    pub async fn send_push(&self, channel_id: u64, packet: &Packet) -> anyhow::Result<()> {
+        let mut channels = self.channels.write().await;
+        ensure!(packet.is_push(), "invalid packet");
+        ensure!(channels.contains_key(&channel_id), "channel not ready");
+        Ok(channels.get_mut(&channel_id).unwrap().send_packet(&packet).await?)
+    }
 
     pub async fn wait_request(&self, cmd: u32) -> (u64, Packet) {
         if !self.request_chan_receiver.read().await.contains_key(&cmd) {
@@ -60,13 +70,14 @@ impl StreamServer {
 
         self.request_chan_receiver.write().await.get_mut(&cmd).unwrap().recv().await.unwrap()
     }
+
+    pub async fn wait_channel_closed_event(&self) -> u64 {
+        self.channel_closed_event_receiver.lock().await.recv().await.unwrap()
+    }
 }
 
-
-
 impl StreamServer {
-    fn start(server_name: String, channels: Arc<RwLock<HashMap<u64, Channel>>>, request_chan_sender: Arc<RwLock<HashMap<u32, mpsc::Sender<(u64, Packet)>>>>,stop_receiver: oneshot::Receiver<()>) {
-
+    fn start(server_name: String, channels: Arc<RwLock<HashMap<u64, Channel>>>, request_chan_sender: Arc<RwLock<HashMap<u32, mpsc::Sender<(u64, Packet)>>>>,stop_receiver: oneshot::Receiver<()>, channel_closed_event_sender: mpsc::Sender<u64>) {
         let channels_observe = channels.clone();
         let (event_sender, event_receiver) = mpsc::channel(128);
 
@@ -80,14 +91,11 @@ impl StreamServer {
                         println!("accept complete");
                     },
 
-                    _ = Self::observe_channel_event(channels_observe, request_chan_sender, event_receiver) => {
+                    _ = Self::observe_channel_event(channels_observe, request_chan_sender, event_receiver, channel_closed_event_sender) => {
                         println!("check complete");
                     },
-
                 }
-
             }
-
         );
     }
 
@@ -106,12 +114,13 @@ impl StreamServer {
     }
 
 
-    async fn observe_channel_event(channels: Arc<RwLock<HashMap<u64, Channel>>>, request_chan_sender: Arc<RwLock<HashMap<u32, mpsc::Sender<(u64, Packet)>>>>, mut conn_event_receiver: mpsc::Receiver<Event>) {
-        while let Some(event) = conn_event_receiver.recv().await {
+    async fn observe_channel_event(channels: Arc<RwLock<HashMap<u64, Channel>>>, request_chan_sender: Arc<RwLock<HashMap<u32, mpsc::Sender<(u64, Packet)>>>>, mut channel_event_receiver: mpsc::Receiver<Event>, channel_closed_event_sender: mpsc::Sender<u64>) {
+        while let Some(event) = channel_event_receiver.recv().await {
             match event {
                 Event::Closed(channel_id) => {
                     println!("recv closed event, conn_id = {}", channel_id);
                     channels.write().await.remove(&channel_id);
+                    let _ = channel_closed_event_sender.send(channel_id).await;
                 }
                 Event::GotRequest(channel_id, packet) => {
                     if packet.cmd() == HEART_BEAT_CMD {

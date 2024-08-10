@@ -1,13 +1,11 @@
 use std::collections::HashMap;
-use std::future::Future;
 use std::sync::{Arc};
 use std::time::Duration;
 use anyhow::ensure;
 use bytes::Bytes;
 use tokio::runtime::Handle;
 use tokio::{select, time};
-use tokio::sync::{mpsc, oneshot, RwLock};
-use tokio::task::JoinHandle;
+use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
 use crate::{Packet};
 use crate::channel::{Channel, Event};
 use crate::factory::Factory;
@@ -20,9 +18,14 @@ const HEARTBEAT_INTERVAL_MILLIS : u64 = 2 * 1000;
 
 
 pub struct StreamClient {
+    server_name: String,
     channel: Arc<RwLock<Option<Channel>>>,
+    channel_event_receiver: Arc<RwLock<Option<mpsc::Receiver<Event>>>>,
+    channel_closed_event_receiver: Mutex<mpsc::Receiver<()>>,
+
     push_chan_sender: Arc<RwLock<HashMap<u32, mpsc::Sender<Packet>>>>,
     push_chan_receiver: Arc<RwLock<HashMap<u32, mpsc::Receiver<Packet>>>>,
+
     stop_sender: Option<oneshot::Sender<()>>,
 }
 
@@ -35,25 +38,49 @@ impl Drop for StreamClient {
 
 impl StreamClient {
     pub fn new(server_name: &str) -> Self {
-        let channel: Arc<RwLock<Option<Channel>>> = Arc::new(Default::default());
+        let channel: Arc<RwLock<Option<Channel>>> = Default::default();
+        let channel_event_receiver: Arc<RwLock<Option<mpsc::Receiver<Event>>>> = Default::default();
+        let (channel_closed_event_sender, channel_closed_event_receiver) = mpsc::channel::<()>(1);
+
         let push_chan_sender = Arc::new(RwLock::new(HashMap::new()));
         let push_chan_receiver = Arc::new(RwLock::new(HashMap::new()));
 
+        let channel_event_receiver_start = channel_event_receiver.clone();
         let (stop_sender, stop_receiver) = oneshot::channel();
         let channel_start = channel.clone();
         let push_chan_sender_start = push_chan_sender.clone();
+        Self::start(channel_start, channel_event_receiver_start, channel_closed_event_sender, push_chan_sender_start, stop_receiver);
 
-        Self::start(server_name.to_string(), channel_start, push_chan_sender_start, stop_receiver);
 
         Self {
+            server_name: server_name.to_string(),
             channel,
+            channel_event_receiver,
+            channel_closed_event_receiver: Mutex::new(channel_closed_event_receiver),
             push_chan_sender,
             push_chan_receiver,
             stop_sender: Some(stop_sender),
         }
     }
 
-    pub async fn send_request_wait_response(&mut self, packet: &Packet, timeout_seconds: u64) -> anyhow::Result<Packet> {
+    pub async fn connect(&self) -> anyhow::Result<()> {
+        if self.channel.read().await.is_some() {
+            return Ok(());
+        }
+
+        let mut connector = Factory::create_connector(&self.server_name);
+        let (chan_event_sender, chan_event_receiver) = mpsc::channel(128);
+        let chan= connector.connect(chan_event_sender.clone()).await?;
+        let _ = self.channel.write().await.insert(chan);
+        let _ = self.channel_event_receiver.write().await.insert(chan_event_receiver);
+        Ok(())
+    }
+
+    pub async fn wait_closed_event(&self) {
+        self.channel_closed_event_receiver.lock().await.recv().await.unwrap()
+    }
+
+    pub async fn send_request(&self, packet: &Packet, timeout_seconds: u64) -> anyhow::Result<Packet> {
         let mut channel = self.channel.write().await;
         ensure!(channel.is_some(), "disconnected");
         channel.as_mut().unwrap().send_request_wait_response(packet, timeout_seconds).await
@@ -71,15 +98,12 @@ impl StreamClient {
 }
 
 
-
 impl StreamClient {
-    fn start(server_name: String, channel: Arc<RwLock<Option<Channel>>>, push_chan_sender: Arc<RwLock<HashMap<u32, mpsc::Sender<Packet>>>>, stop_receiver: oneshot::Receiver<()>) {
-        let channel_event = channel.clone();
+    fn start(channel: Arc<RwLock<Option<Channel>>>, channel_event_receiver: Arc<RwLock<Option<mpsc::Receiver<Event>>>>, channel_closed_event_sender: mpsc::Sender<()>, push_chan_sender: Arc<RwLock<HashMap<u32, mpsc::Sender<Packet>>>>, stop_receiver: oneshot::Receiver<()>) {
+        let channel_observe = channel.clone();
         let channel_heartbeat = channel.clone();
-        let push_chan_sender = push_chan_sender.clone();
 
-        let event_receiver_connect: Arc<RwLock<Option<mpsc::Receiver<Event>>>> = Arc::new(RwLock::new(None));
-        let event_receiver_observe = event_receiver_connect.clone();
+        let push_chan_sender = push_chan_sender.clone();
 
         Handle::current().spawn(
             async move {
@@ -87,10 +111,7 @@ impl StreamClient {
                     _ = stop_receiver => {
                         println!("stop_receiver fired");
                     },
-                    _ = Self::connect(&server_name, channel, event_receiver_connect) => {
-                        println!("connect complete");
-                    },
-                    _ = Self::observe_channel_event(channel_event, push_chan_sender, event_receiver_observe) => {
+                    _ = Self::observe_channel_event(channel_observe, channel_closed_event_sender, push_chan_sender, channel_event_receiver) => {
                         println!("check complete");
                     },
                     _ = Self::heartbeat(channel_heartbeat) => {
@@ -100,28 +121,6 @@ impl StreamClient {
             }
         );
     }
-
-
-
-    async fn connect(server_name: &str, channel: Arc<RwLock<Option<Channel>>>, event_receiver: Arc<RwLock<Option<mpsc::Receiver<Event>>>>) {
-        let mut connector = Factory::create_connector(server_name);
-        loop {
-            if channel.read().await.is_none() {
-                let (chan_event_sender, chan_event_receiver) = mpsc::channel(128);
-                if let Ok(chan) = connector.connect(chan_event_sender.clone()).await {
-                    println!("connect success");
-                    *event_receiver.write().await = Some(chan_event_receiver);
-                    *channel.write().await = Some(chan);
-                } else {
-                    println!("connect failed");
-                }
-            }
-
-            time::sleep(Duration::from_millis(RECONNECT_INTERVAL_MILLIS)).await;
-        }
-    }
-
-
 
     async fn heartbeat(channel: Arc<RwLock<Option<Channel>>>) {
         loop {
@@ -136,13 +135,14 @@ impl StreamClient {
 
 
 
-    async fn observe_channel_event(channel: Arc<RwLock<Option<Channel>>>, push_chan_sender: Arc<RwLock<HashMap<u32, mpsc::Sender<Packet>>>>, event_receiver: Arc<RwLock<Option<mpsc::Receiver<Event>>>>) {
+    async fn observe_channel_event(channel: Arc<RwLock<Option<Channel>>>, channel_closed_event_sender: mpsc::Sender<()>, push_chan_sender: Arc<RwLock<HashMap<u32, mpsc::Sender<Packet>>>>, event_receiver: Arc<RwLock<Option<mpsc::Receiver<Event>>>>) {
         loop {
             let mut event_receiver = event_receiver.write().await;
             if let Some(receiver) = event_receiver.as_mut() {
                 while let Some(event) = receiver.recv().await {
                     match event {
                         Event::Closed(_) => {
+                            let _ = channel_closed_event_sender.send(()).await;
                             println!("connection closed");
                             break;
                         }

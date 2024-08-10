@@ -1,6 +1,5 @@
 use tokio::net::{UnixListener, TcpListener};
 use async_trait::async_trait;
-use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 use crate::channel::{Channel, Event};
 use crate::reader::{TcpReader, UnixReader};
