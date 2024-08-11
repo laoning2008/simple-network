@@ -1,0 +1,51 @@
+syntax = "proto3";
+package proto;
+import "google/protobuf/empty.proto";
+
+enum ValueTypeMessage {
+    INT = 0;
+    BOOL = 1;
+    DOUBLE = 2;
+    STRING = 3;
+}
+
+message ParamMessage {
+    string key = 1;
+    ValueTypeMessage type = 2;
+}
+
+message ServiceMessage {
+    string service_id = 1;
+    string service_name = 2;
+    string service_desc = 3;
+    repeated ParamMessage params = 4;
+    ParamMessage result = 5;
+}
+
+message DeviceMessage {
+    string device_id = 1;
+    string device_name = 2;
+    string device_address = 3;
+    repeated ServiceMessage services = 4;
+}
+
+message DeviceOnlineRequest {
+    DeviceMessage device = 1;
+}
+
+message DeviceOfflineRequest {
+    string device_id = 1;
+}
+
+message SyncDeviceRequest {
+    google.protobuf.Empty empty = 1;
+}
+
+message SyncDeviceResponse {
+    repeated DeviceMessage devices = 1;
+}
+
+message DeviceStatusPush {
+    repeated string online_device_ids = 1;
+    repeated string offline_device_ids = 2;
+}

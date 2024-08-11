@@ -133,8 +133,6 @@ impl StreamClient {
         }
     }
 
-
-
     async fn observe_channel_event(channel: Arc<RwLock<Option<Channel>>>, channel_closed_event_sender: mpsc::Sender<()>, push_chan_sender: Arc<RwLock<HashMap<u32, mpsc::Sender<Packet>>>>, event_receiver: Arc<RwLock<Option<mpsc::Receiver<Event>>>>) {
         loop {
             let mut event_receiver = event_receiver.write().await;

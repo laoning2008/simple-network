@@ -1,12 +1,9 @@
-use bytes::Bytes;
-use simple_network::{Packet, StreamServer};
+mod device_hub;
+mod service;
+mod proto;
+mod device;
 
 #[tokio::main]
 async fn main() {
-    let server_name = "localhost:8080";
-    let mut server = StreamServer::new(server_name);
-
-    loop {
-
-    }
+    // let hub = devicehub::DeviceHub {};
 }

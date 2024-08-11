@@ -8,3 +8,7 @@ simple-network = {path = "../simple-network"}
 tokio = {version = "1.34.0", features = ["full"] }
 bytes = "1.5.0"
 anyhow = "1.0.75"
+prost = "0.13.1"
+
+[build-dependencies]
+prost-build = "0.13.1"
