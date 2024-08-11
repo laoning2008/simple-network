@@ -23,7 +23,7 @@ impl DeviceHub {
         loop {
             select! {
                 channel_id = self.rpc_server.wait_channel_closed_event() => {
-
+                    self.device_mgr.on_channel_closed(channel_id).await;
                 }
                 (channel_id, cmd, request) = self.rpc_server.wait_request::<DeviceOnlineRequest>(CMD_DEVICE_ONLINE) => {
                     self.device_mgr.on_device_online(request).await;

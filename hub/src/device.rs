@@ -36,6 +36,14 @@ impl DeviceMgr {
         }
     }
 
+    pub async fn on_channel_closed(&self, channel_id: u64) {
+        let chan_to_device_map = self.chan_to_device_map.lock().unwrap();
+        if let Some(device_id) = chan_to_device_map.get(&channel_id) {
+            let mut devices = self.devices.lock().unwrap();
+            devices.remove(device_id);
+        }
+    }
+
     pub async fn on_device_online(&self, request: DeviceOnlineRequest) {
         let mut devices = self.devices.lock().unwrap();
         let device = request.device.unwrap();
