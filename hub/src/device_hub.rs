@@ -12,26 +12,26 @@ pub struct DeviceHub {
 }
 
 impl DeviceHub {
-    pub fn new(server_name: &str) -> Self {
+    pub fn new() -> Self {
         Self {
-            rpc_server: RpcServer::new(StreamServer::new(server_name)),
+            rpc_server: RpcServer::new(StreamServer::new()),
             device_mgr: DeviceMgr::new(),
         }
     }
 
     pub async fn start(&self) {
         loop {
-            select! {
-                channel_id = self.rpc_server.wait_channel_closed_event() => {
-                    self.device_mgr.on_channel_closed(channel_id).await;
-                }
-                (channel_id, cmd, request) = self.rpc_server.wait_request::<DeviceOnlineRequest>(CMD_DEVICE_ONLINE) => {
-                    self.device_mgr.on_device_online(request).await;
-                }
-                (channel_id, cmd, request) = self.rpc_server.wait_request::<DeviceOfflineRequest>(CMD_DEVICE_OFFLINE) => {
-                    self.device_mgr.on_device_offline(request).await;
-                }
-            }
+            // select! {
+            //     channel_id = self.rpc_server.wait_channel_closed_event() => {
+            //         self.device_mgr.on_channel_closed(channel_id).await;
+            //     }
+            //     (channel_id, cmd, request) = self.rpc_server.wait_request::<DeviceOnlineRequest>(CMD_DEVICE_ONLINE) => {
+            //         self.device_mgr.on_device_online(request).await;
+            //     }
+            //     (channel_id, cmd, request) = self.rpc_server.wait_request::<DeviceOfflineRequest>(CMD_DEVICE_OFFLINE) => {
+            //         self.device_mgr.on_device_offline(request).await;
+            //     }
+            // }
         }
     }
 }

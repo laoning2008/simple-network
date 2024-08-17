@@ -10,7 +10,7 @@ use crate::{Packet};
 use crate::channel::{Channel, Event};
 use crate::factory::Factory;
 use crate::packet::HEART_BEAT_CMD;
-
+use crate::connector::StreamConnector;
 
 const RECONNECT_INTERVAL_MILLIS : u64 = 1000;
 const RE_OBSERVER_EVENT_INTERVAL_MILLIS : u64 = 500;

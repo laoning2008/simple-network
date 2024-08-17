@@ -68,7 +68,7 @@ impl Channel {
         self.stream_writer.write_all(data.as_bytes()).await?;
 
         let (sender, receiver) = oneshot::channel();
-        let packet_id = Self::get_packet_id(packet.cmd(), packet.seq());
+        let packet_id = Self::packet_id(packet.cmd(), packet.seq());
 
         self.rsp_chan_sender.write().unwrap().insert(packet_id, sender);
         defer! {self.rsp_chan_sender.write().unwrap().remove(&packet_id);}
@@ -84,7 +84,9 @@ impl Channel {
 
 
 impl Channel {
-    fn start(channel_id: u64, stream_reader: Box<dyn StreamReader>, event_sender: mpsc::Sender<Event>, rsp_chan_sender: Arc<RwLock<HashMap<u64, oneshot::Sender<Packet>>>>, stop_receiver: oneshot::Receiver<()>) {
+    fn start(channel_id: u64, stream_reader: Box<dyn StreamReader>, event_sender: mpsc::Sender<Event>
+             , rsp_chan_sender: Arc<RwLock<HashMap<u64, oneshot::Sender<Packet>>>>
+             , stop_receiver: oneshot::Receiver<()>) {
         let event_sender_check = event_sender.clone();
         let last_recv_time = Arc::new(RwLock::new(Instant::now()));
 
@@ -109,7 +111,9 @@ impl Channel {
 
 
 
-    async fn receive_packet(channel_id: u64, rsp_chan_sender: Arc<RwLock<HashMap<u64, oneshot::Sender<Packet>>>>, mut stream_reader: Box<dyn StreamReader>, last_recv_time: Arc<RwLock<Instant>>, event_sender: mpsc::Sender<Event>) {
+    async fn receive_packet(channel_id: u64, rsp_chan_sender: Arc<RwLock<HashMap<u64, oneshot::Sender<Packet>>>>
+                            , mut stream_reader: Box<dyn StreamReader>, last_recv_time: Arc<RwLock<Instant>>
+                            , event_sender: mpsc::Sender<Event>) {
         let mut read_buffer =  BytesMut::with_capacity(RECV_BUF_SIZE);
         loop {
             let received_packets = Self::process_packet(&mut read_buffer);
@@ -118,7 +122,7 @@ impl Channel {
             for pack in received_packets {
                 *last_recv_time.write().unwrap() = Instant::now();
                 if pack.is_rsp() {
-                    let packet_id = Self::get_packet_id(pack.cmd(), pack.seq());
+                    let packet_id = Self::packet_id(pack.cmd(), pack.seq());
                     let mut rsp_chan_sender = rsp_chan_sender.write().unwrap();
                     if !rsp_chan_sender.contains_key(&packet_id) {
                         continue;
@@ -191,12 +195,12 @@ impl Channel {
 
         let consume_len = buf.position() as usize;
         read_buffer.advance(consume_len);
-        return packets;
+        packets
     }
 
 
 
-    fn get_packet_id(cmd: u32, seq: u32) -> u64 {
+    fn packet_id(cmd: u32, seq: u32) -> u64 {
         let mut packet_id : u64 = cmd as u64;
         packet_id = packet_id << 31;
         packet_id |= seq as u64;
