@@ -40,7 +40,7 @@ impl RpcClient {
         }, cookie).await;
     }
 
-    pub async  fn unregister_request_callback<M: Message + Default+ 'static>(&self, cmd: u32) {
+    pub async  fn unregister_push_callback<M: Message + Default+ 'static>(&self, cmd: u32) {
         if let Some((_, cookie)) = self.client.unregister_push_callback(cmd).await {
             unsafe {
                 let _ = Box::from_raw(cookie as *mut c_void as *mut Box<Box<dyn Fn(u64, M) -> BoxFuture<'static, ()> + Send + Sync + 'static>>);
