@@ -20,6 +20,11 @@ impl DeviceHub {
     }
 
     pub async fn start(&self) {
+        self.rpc_server.register_request_callback::<DeviceOnlineRequest, DeviceOfflineRequest>(CMD_DEVICE_ONLINE, |channel_id, req| {
+            Box::pin(async move {
+                Err(1)
+            })
+        });
         loop {
             // select! {
             //     channel_id = self.rpc_server.wait_channel_closed_event() => {

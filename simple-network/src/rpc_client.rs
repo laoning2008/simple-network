@@ -32,7 +32,7 @@ impl RpcClient {
         Ok(RSP::decode(rsp_pack.body())?)
     }
 
-    pub async fn register_push_callback<M: Message + Default+ 'static>(&self, cmd: u32, callback: impl Fn(u64, M) -> BoxFuture<'static, ()> + Send + Sync + 'static) {
+    pub fn register_push_callback<M: Message + Default+ 'static>(&self, cmd: u32, callback: impl Fn(u64, M) -> BoxFuture<'static, ()> + Send + Sync + 'static) {
         let cb: Box<Box<dyn Fn(u64, M) -> BoxFuture<'static,  ()> + Send + Sync + 'static>>  = Box::new(Box::new(callback));
         let cookie = Box::into_raw(cb) as *mut c_void as u64;
         self.client.register_push_callback(cmd,  move|channel_id, pack, cookie|  {
@@ -48,7 +48,7 @@ impl RpcClient {
         }, cookie);
     }
 
-    pub async  fn unregister_push_callback<M: Message + Default+ 'static>(&self, cmd: u32) {
+    pub  fn unregister_push_callback<M: Message + Default+ 'static>(&self, cmd: u32) {
         if let Some((_, cookie)) = self.client.unregister_push_callback(cmd) {
             unsafe {
                 let _ = Box::from_raw(cookie as *mut c_void as *mut Box<Box<dyn Fn(u64, M) -> BoxFuture<'static, ()> + Send + Sync + 'static>>);
@@ -56,7 +56,7 @@ impl RpcClient {
         }
     }
 
-    pub async fn set_channel_closed_callback(&self, cb: impl Fn(u64) -> BoxFuture<'static, ()> + Send + Sync + 'static) {
+    pub fn set_channel_closed_callback(&self, cb: impl Fn(u64) -> BoxFuture<'static, ()> + Send + Sync + 'static) {
         self.client.set_channel_closed_callback(cb);
     }
 }

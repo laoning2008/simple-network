@@ -26,10 +26,10 @@ impl RpcServer {
         self.server.send_push(channel_id, &pack).await
     }
 
-    pub async fn register_request_callback<REQ: Message + Default+ 'static, RSP: Message + Default+ 'static>(&self, cmd: u32, callback: impl Fn(u64, REQ) -> BoxFuture<'static, Result<RSP, u32>> + Send + Sync + 'static) {
+    pub fn register_request_callback<REQ: Message + Default+ 'static, RSP: Message + Default+ 'static>(&self, cmd: u32, callback: impl Fn(u64, REQ) -> BoxFuture<'static, Result<RSP, u32>> + Send + Sync + 'static) {
         let cb: Box<Box<dyn Fn(u64, REQ) -> BoxFuture<'static,  Result<RSP, u32>> + Send + Sync + 'static>>  = Box::new(Box::new(callback));
         let cookie = Box::into_raw(cb) as *mut c_void as u64;
-        self.server.register_request_callback(cmd,  move|channel_id, pack, cookie|  {
+        self.server.register_request_callback(cmd,  move |channel_id, pack, cookie|  {
             Box::pin(async move  {
                 unsafe {
                     let closure: &Box<dyn Fn(u64, REQ) -> BoxFuture<'static,  Result<RSP, u32>> + Send + Sync + 'static> = mem::transmute(cookie as * mut  c_void);
@@ -50,7 +50,7 @@ impl RpcServer {
         }, cookie);
     }
 
-    pub async  fn unregister_request_callback<REQ: Message + Default+ 'static, RSP: Message + Default+ 'static>(&self, cmd: u32) {
+    pub fn unregister_request_callback<REQ: Message + Default+ 'static, RSP: Message + Default+ 'static>(&self, cmd: u32) {
         if let Some((_, cookie)) = self.server.unregister_request_callback(cmd) {
             unsafe {
                 let _ = Box::from_raw(cookie as *mut c_void as *mut Box<Box<dyn Fn(u64, REQ) -> BoxFuture<'static,  Result<RSP, u32>> + Send + Sync + 'static>>);
@@ -58,7 +58,7 @@ impl RpcServer {
         }
     }
 
-    pub async fn set_channel_closed_callback(&self, cb: impl Fn(u64) -> BoxFuture<'static, ()> + Send + Sync + 'static) {
+    pub fn set_channel_closed_callback(&self, cb: impl Fn(u64) -> BoxFuture<'static, ()> + Send + Sync + 'static) {
         self.server.set_channel_closed_callback(cb);
     }
 }
