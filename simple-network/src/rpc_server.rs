@@ -47,11 +47,11 @@ impl RpcServer {
                     }
                 }
             })
-        }, cookie).await;
+        }, cookie);
     }
 
     pub async  fn unregister_request_callback<REQ: Message + Default+ 'static, RSP: Message + Default+ 'static>(&self, cmd: u32) {
-        if let Some((_, cookie)) = self.server.unregister_request_callback(cmd).await {
+        if let Some((_, cookie)) = self.server.unregister_request_callback(cmd) {
             unsafe {
                 let _ = Box::from_raw(cookie as *mut c_void as *mut Box<Box<dyn Fn(u64, REQ) -> BoxFuture<'static,  Result<RSP, u32>> + Send + Sync + 'static>>);
             }
@@ -59,6 +59,6 @@ impl RpcServer {
     }
 
     pub async fn set_channel_closed_callback(&self, cb: impl Fn(u64) -> BoxFuture<'static, ()> + Send + Sync + 'static) {
-        self.server.set_channel_closed_callback(cb).await;
+        self.server.set_channel_closed_callback(cb);
     }
 }

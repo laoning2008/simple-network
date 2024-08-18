@@ -1,9 +1,10 @@
 use std::collections::HashMap;
+use std::sync::Mutex;
 use anyhow::ensure;
 use bytes::Bytes;
 use futures::future::BoxFuture;
 use tokio::select;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc};
 use crate::{ChannelClosedCallback, Packet, RequestReceivedCallback};
 use crate::acceptor::StreamAcceptor;
 use crate::channel::{Channel, Event};
@@ -49,23 +50,23 @@ impl StreamServer {
         }
     }
 
-    pub async fn register_request_callback(&self, cmd: u32, cb: impl Fn(u64, Packet, u64) -> BoxFuture<'static, Packet> + Send + Sync + 'static, cookie: u64) {
-        let mut callbacks = self.request_received_callbacks.lock().await;
+    pub fn register_request_callback(&self, cmd: u32, cb: impl Fn(u64, Packet, u64) -> BoxFuture<'static, Packet> + Send + Sync + 'static, cookie: u64) {
+        let mut callbacks = self.request_received_callbacks.lock().unwrap();
         callbacks.insert(cmd, (Box::new(cb), cookie));
     }
 
-    pub async fn unregister_request_callback(&self, cmd: u32) -> Option<(RequestReceivedCallback, u64)> {
-        let mut callbacks = self.request_received_callbacks.lock().await;
+    pub fn unregister_request_callback(&self, cmd: u32) -> Option<(RequestReceivedCallback, u64)> {
+        let mut callbacks = self.request_received_callbacks.lock().unwrap();
         callbacks.remove(&cmd)
     }
 
-    pub async fn set_channel_closed_callback(&self, cb: impl Fn(u64) -> BoxFuture<'static, ()> + Send + Sync + 'static) {
-        let mut callback = self.channel_closed_callback.lock().await;
+    pub fn set_channel_closed_callback(&self, cb: impl Fn(u64) -> BoxFuture<'static, ()> + Send + Sync + 'static) {
+        let mut callback = self.channel_closed_callback.lock().unwrap();
         *callback = Some(Box::new(cb));
     }
 
     pub async fn send_push(&self, channel_id: u64, packet: &Packet) -> anyhow::Result<()> {
-        let mut channels = self.channels.lock().await;
+        let mut channels = self.channels.lock().unwrap();
         ensure!(packet.is_push(), "invalid packet");
         ensure!(channels.contains_key(&channel_id), "channel not ready");
         Ok(channels.get_mut(&channel_id).unwrap().send_packet(&packet).await?)
@@ -73,7 +74,7 @@ impl StreamServer {
 
     async fn accept(&self, acceptor: &Box<dyn StreamAcceptor>, event_sender: mpsc::Sender<Event>) -> anyhow::Result<()> {
         let chan = acceptor.accept(event_sender.clone()).await?;
-        let mut channels = self.channels.lock().await;
+        let mut channels = self.channels.lock().unwrap();
         channels.insert(chan.id(), chan);
         Ok(())
     }
@@ -104,10 +105,10 @@ impl StreamServer {
 
     async fn on_channel_closed(&self, channel_id: u64) {
         println!("recv closed event, conn_id = {}", channel_id);
-        let mut channels = self.channels.lock().await;
+        let mut channels = self.channels.lock().unwrap();
         channels.remove(&channel_id);
 
-        let callback = self.channel_closed_callback.lock().await;
+        let callback = self.channel_closed_callback.lock().unwrap();
         if let Some(cb) = callback.as_ref() {
             cb(channel_id).await;
         }
@@ -115,10 +116,10 @@ impl StreamServer {
 
 
     async fn on_request(&self, channel_id: u64, packet: Packet) {
-        let callbacks = self.request_received_callbacks.lock().await;
+        let callbacks = self.request_received_callbacks.lock().unwrap();
         if let Some((callback, cookie)) = callbacks.get(&packet.cmd()) {
             let pack_rp = callback(channel_id, packet, *cookie).await;
-            let mut channels = self.channels.lock().await;
+            let mut channels = self.channels.lock().unwrap();
             if let Some(channel) = channels.get_mut(&channel_id) {
                 let _ = channel.send_packet(&pack_rp).await;
             }
@@ -126,7 +127,7 @@ impl StreamServer {
     }
 
     async fn on_heartbeat(&self, channel_id: u64, packet: Packet) {
-        let mut channels = self.channels.lock().await;
+        let mut channels = self.channels.lock().unwrap();
         let channel = channels.get_mut(&channel_id);
         if let Some(channel) = channel {
             let rsp_pack = Packet::new_rsp(packet.cmd(), packet.seq(), 0, Bytes::default());
