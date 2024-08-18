@@ -50,10 +50,10 @@ impl RpcServer {
         }, cookie).await;
     }
 
-    pub async  fn unregister_request_callback<M: Message + Default+ 'static>(&self, cmd: u32) {
+    pub async  fn unregister_request_callback<REQ: Message + Default+ 'static, RSP: Message + Default+ 'static>(&self, cmd: u32) {
         if let Some((_, cookie)) = self.server.unregister_request_callback(cmd).await {
             unsafe {
-                let _: Box<Box<dyn Fn(u64, M) -> BoxFuture<'static, ()> + Send + Sync + 'static>> = Box::from_raw(cookie as *mut c_void as *mut Box<dyn Fn(u64, M) -> BoxFuture<'static, ()> + Send + Sync + 'static>);
+                let _ = Box::from_raw(cookie as *mut c_void as *mut Box<Box<dyn Fn(u64, REQ) -> BoxFuture<'static,  Result<RSP, u32>> + Send + Sync + 'static>>);
             }
         }
     }

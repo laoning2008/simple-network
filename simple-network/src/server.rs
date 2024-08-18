@@ -4,15 +4,14 @@ use bytes::Bytes;
 use futures::future::BoxFuture;
 use tokio::select;
 use tokio::sync::{mpsc, Mutex};
-use crate::{Packet};
+use crate::{ChannelClosedCallback, Packet, RequestReceivedCallback};
 use crate::acceptor::StreamAcceptor;
 use crate::channel::{Channel, Event};
 use crate::factory::Factory;
 use crate::packet::HEART_BEAT_CMD;
 
 
-pub type ChannelClosedCallback = Box<dyn Fn(u64) -> BoxFuture<'static, ()> + Send + Sync + 'static>;
-pub type RequestReceivedCallback = Box<dyn Fn(u64, Packet, u64) -> BoxFuture<'static, Packet> + Send + Sync + 'static>;
+
 
 pub struct StreamServer {
     channels: Mutex<HashMap<u64, Channel>>,
