@@ -17,6 +17,14 @@ impl RpcClient {
         }
     }
 
+    pub async fn run(&self) {
+        self.client.run().await
+    }
+
+    pub async fn connect(&self) -> anyhow::Result<()> {
+        self.client.connect().await
+    }
+
     pub async fn send_req<REQ: Message, RSP: Message + Default>(&self, method_id: u32, req: REQ, timeout_seconds: u64) -> Result<RSP> {
         let body = req.encode_to_vec();
         let pack = Packet::new_req(method_id, Bytes::from(body));
